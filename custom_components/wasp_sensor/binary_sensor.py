@@ -10,7 +10,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorDeviceClass,
 )
-from homeassistant.core import HomeAssistant, Event, callback
+from homeassistant.core import HomeAssistant, Event
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.const import EVENT_HOMEASSISTANT_START
@@ -125,7 +125,6 @@ class WaspBinarySensor(BinarySensorEntity, RestoreEntity):
             )
         )
 
-    @callback
     async def _box_sensor_change_handler(self, event: Event):
         this_entity_id = event.data["entity_id"]
         new_state = event.data["new_state"].state
@@ -133,7 +132,13 @@ class WaspBinarySensor(BinarySensorEntity, RestoreEntity):
 
         await self._evaluate_box_sensors()
         self._wasp_in_box = False
-        await self.async_update_ha_state()
+
+        if not self.hass or not hasattr(self, 'entity_id') or self.entity_id is None:
+            return
+        try:
+            await self.async_write_ha_state()
+        except (RuntimeError, TypeError) as err:
+            _LOGGER.debug("%s: Could not update state (entity likely being removed): %s", self._config[CONF_NAME], err)
 
         if not self._box_closed or not self._wasp_seen:
             return
@@ -142,10 +147,17 @@ class WaspBinarySensor(BinarySensorEntity, RestoreEntity):
         _LOGGER.debug("%s: box closed & wasp seen; waiting %s sec", self._config[CONF_NAME], timeout)
         await asyncio.sleep(timeout)
 
+        # Check if entity is still valid after sleep
+        if not self.hass or not hasattr(self, 'entity_id') or self.entity_id is None:
+            return
+
         if self._box_closed and self._wasp_seen:
             _LOGGER.debug("%s: still closed & wasp still seen; turning on", self._config[CONF_NAME])
             self._wasp_in_box = True
-            await self.async_update_ha_state()
+            try:
+                await self.async_write_ha_state()
+            except (RuntimeError, TypeError) as err:
+                _LOGGER.debug("%s: Could not update state (entity likely being removed): %s", self._config[CONF_NAME], err)
 
     async def _evaluate_box_sensors(self):
         # Any "open" box sensor cancels closed
@@ -161,7 +173,6 @@ class WaspBinarySensor(BinarySensorEntity, RestoreEntity):
                 return
         self._box_closed = True
 
-    @callback
     async def _wasp_sensor_change_handler(self, event: Event, expected_state: str = "on"):
         this_entity_id = event.data["entity_id"]
         new_state = event.data["new_state"].state
@@ -171,6 +182,10 @@ class WaspBinarySensor(BinarySensorEntity, RestoreEntity):
         )
         await asyncio.sleep(SENSOR_CHANGE_DELAY)
 
+        # Check if entity is still valid after sleep
+        if not self.hass or not hasattr(self, 'entity_id') or self.entity_id is None:
+            return
+
         current = self.hass.states.get(this_entity_id).state if self.hass.states.get(this_entity_id) else None
         _LOGGER.debug("%s: %s after delay is %s", self._config[CONF_NAME], this_entity_id, current)
 
@@ -178,7 +193,10 @@ class WaspBinarySensor(BinarySensorEntity, RestoreEntity):
             self._wasp_in_box = True
 
         await self._evaluate_wasp_sensors()
-        await self.async_update_ha_state()
+        try:
+            await self.async_write_ha_state()
+        except (RuntimeError, TypeError) as err:
+            _LOGGER.debug("%s: Could not update state (entity likely being removed): %s", self._config[CONF_NAME], err)
 
     async def _evaluate_wasp_sensors(self):
         for ent in self._config.get(CONF_WASP_SENSORS, []):
