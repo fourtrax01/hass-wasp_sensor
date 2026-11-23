@@ -1,20 +1,31 @@
-"""Wasp Sensor integration bootstrapping."""
+"""
+Custom integration for Wasp Sensor
+
+For more details about this integration, please refer to
+https://github.com/dlashua/hass-wasp_sensor
+"""
 import logging
-from typing import Any, Dict, List
+from typing import List, Dict
+
+from homeassistant import config as conf_util
+from homeassistant.loader import async_get_integration
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.core import HomeAssistant
+from homeassistant.core_config import Config
+from homeassistant.helpers import discovery
+from homeassistant.components.binary_sensor import BinarySensorEntity
 
 import voluptuous as vol
-import homeassistant.helpers.config_validation as cv
+from voluptuous.schema_builder import ALLOW_EXTRA, PREVENT_EXTRA
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant import config as conf_util
+
+import homeassistant.helpers.config_validation as cv
 
 from .const import (
     DOMAIN,
-    PLATFORMS,
     STARTUP_MESSAGE,
     SERVICE_RELOAD,
+    BINARY_SENSOR,
     DEFAULT_WASP_TIMEOUT,
     CONF_WASP_SENSORS,
     CONF_WASP_INV_SENSORS,
@@ -24,89 +35,104 @@ from .const import (
     CONF_NAME,
 )
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER: logging.Logger = logging.getLogger(__package__)
 
 ENTRY_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_NAME): cv.string,
+        CONF_NAME: str,
         vol.Optional(CONF_WASP_SENSORS, default=[]): cv.entity_ids,
         vol.Optional(CONF_WASP_INV_SENSORS, default=[]): cv.entity_ids,
         vol.Optional(CONF_BOX_SENSORS, default=[]): cv.entity_ids,
         vol.Optional(CONF_BOX_INV_SENSORS, default=[]): cv.entity_ids,
         vol.Optional(CONF_TIMEOUT, default=DEFAULT_WASP_TIMEOUT): vol.Coerce(int),
-    }
+    },
+    extra=PREVENT_EXTRA,
 )
 
-CONFIG_SCHEMA = vol.Schema({DOMAIN: [ENTRY_SCHEMA]}, extra=vol.ALLOW_EXTRA)
-
-# Where we stash parsed YAML so config_flow can import it
-DATA_YAML = f"{DOMAIN}_yaml"
+CONFIG_SCHEMA = vol.Schema({DOMAIN: [ENTRY_SCHEMA]}, extra=ALLOW_EXTRA)
 
 
-async def async_setup(hass: HomeAssistant, hass_config: Dict[str, Any]) -> bool:
-    """Set up via YAML (optional) and register services."""
-    _LOGGER.info(STARTUP_MESSAGE)
+class EntityRegistry:
+    """ Handle Registering Entities for later Destruction """
 
-    # Parse YAML if present and stash for import step
-    yaml_entries = hass_config.get(DOMAIN)
-    if yaml_entries:
+    def __init__(self) -> None:
+        self.registered_entities: List[BinarySensorEntity] = []
+
+    async def register_entities(self, entities: List[BinarySensorEntity]) -> None:
+        """ Perform Entity Registration """
+        for entity in entities:
+            self.registered_entities.append(entity)
+
+    async def shutdown(self):
+        """ Destroy all Entities """
+        for entity in self.registered_entities:
+            await entity.async_remove()
+
+        self.registered_entities = []
+
+
+async def async_setup(hass: HomeAssistant, hass_config: Config) -> bool:
+    """Component setup."""
+    if hass.data.get(DOMAIN) is None:
+        _LOGGER.info(STARTUP_MESSAGE)
+
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN] = hass_config[DOMAIN]
+
+    registry = EntityRegistry()
+
+    await start_it_up(hass, hass_config, registry)
+
+    async def reload_scripts_handler(_) -> None:
+        """Handle reload service calls."""
+        _LOGGER.debug("reloading")
+
+        await registry.shutdown()
+
         try:
-            validated = CONFIG_SCHEMA({DOMAIN: yaml_entries})[DOMAIN]
-            hass.data[DATA_YAML] = validated
-            # Kick off an import flow per group
-            for group in validated:
-                hass.async_create_task(
-                    hass.config_entries.flow.async_init(
-                        DOMAIN,
-                        context={"source": "import"},
-                        data=group,
-                    )
-                )
-        except vol.Invalid as err:
-            _LOGGER.error("Invalid %s YAML: %s", DOMAIN, err)
-            return False
-
-    async def _handle_reload(_call=None):
-        """Re-read YAML and reload entries."""
-        try:
-            unprocessed = await conf_util.async_hass_config_yaml(hass)
+            unprocessed_conf = await conf_util.async_hass_config_yaml(hass)
         except HomeAssistantError as err:
-            _LOGGER.error("Reload failed reading YAML: %s", err)
+            _LOGGER.error(err)
             return
 
-        new_yaml = unprocessed.get(DOMAIN, [])
-        hass.data[DATA_YAML] = new_yaml
+        conf = await conf_util.async_process_component_config(
+            hass, unprocessed_conf, await async_get_integration(hass, DOMAIN)
+        )
 
-        # Re-import: create flows for new/changed groups (HA will de-duplicate titles)
-        for group in new_yaml:
-            hass.async_create_task(
-                hass.config_entries.flow.async_init(
-                    DOMAIN,
-                    context={"source": "import"},
-                    data=group,
-                )
-            )
+        if conf is None:
+            return
 
-        # Reload existing entries
-        for entry in hass.config_entries.async_entries(DOMAIN):
-            await hass.config_entries.async_reload(entry.entry_id)
+        # Extract config from IntegrationConfigInfo object (HA 2025.x compatibility)
+        if hasattr(conf, 'config'):
+            processed_config = conf.config
+        else:
+            processed_config = conf
 
-    hass.services.async_register(DOMAIN, SERVICE_RELOAD, _handle_reload)
+        if DOMAIN not in processed_config:
+            return
+
+        hass.data.setdefault(DOMAIN, {})
+        hass.data[DOMAIN] = processed_config[DOMAIN]
+        await start_it_up(hass, processed_config, registry)
+
+    hass.services.async_register(DOMAIN, SERVICE_RELOAD, reload_scripts_handler)
+
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Wasp Sensor from a config entry."""
-    # entry.data contains ONE group (name + lists of entity_ids + timeout)
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = entry.data
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    return True
+async def start_it_up(
+    hass: HomeAssistant, hass_config: Config, registry: EntityRegistry
+):
+    """ Handle Startup Tasks """
 
+    config = {"registrar": registry.register_entities, "entities": hass.data[DOMAIN]}
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-    return unload_ok
+    hass.async_create_task(
+        discovery.async_load_platform(
+            hass,
+            BINARY_SENSOR,
+            DOMAIN,
+            config,
+            hass_config,
+        )
+    )

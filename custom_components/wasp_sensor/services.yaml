@@ -1,3 +1,4 @@
 reload:
-  name: Reload from YAML
-  description: Re-read configuration.yaml for wasp_sensor and reload entries.
+  description: >
+    Reload Wasp Sensor
+  fields: {}

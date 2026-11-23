@@ -2,7 +2,11 @@
 
 This is a Wasp Sensor for Home Assistant. It is installable as a `custom_component` or via [HACS](https://hacs.xyz/).
 
-To install via HACS add the repository URL `https://github.com/dlashua/hass-wasp_sensor` as a custom resposity. It should then show up on the Inegrations Installation page.
+To install via HACS add the repository URL `https://github.com/fourtrax01/hass-wasp_sensor` as a custom repository. It should then show up on the Integrations installation page.
+
+This is a fork of [dlashua/hass-wasp_sensor](https://github.com/dlashua/hass-wasp_sensor) with fixes for current Home Assistant (2024.11 and later): the new `core_config` import, the reload service on HA 2025.x, and the box-closed timeout running as a cancellable background task instead of pausing the event handler. An experimental UI (config flow) version is on the [`config-flow-rewrite`](https://github.com/fourtrax01/hass-wasp_sensor/tree/config-flow-rewrite) branch.
+
+**Known issue:** Home Assistant logs a warning that this YAML-configured integration attaches a device to an entity without a config entry, which HA says will stop working in **2027.8**. The sensor works normally until then; the config-flow branch is the planned long-term fix.
 
 # Wasp Sensor
 
@@ -51,7 +55,7 @@ A list of `entity_id`s that indicate when the room is open or when an exit is be
 The same as `box_sensors` but `off` indicates that the room is exitable or being exited.
 
 ## timeout
-The number of seconds that `wasp_sensors` and `wasp_inv_sensors` should be in the motion detected state to indicate that the room is truly occupied. This defaults to 180.
+The number of seconds that `wasp_sensors` and `wasp_inv_sensors` should be in the motion detected state to indicate that the room is truly occupied. This defaults to 5.
 
 # Logic
 
