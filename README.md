@@ -6,7 +6,7 @@ To install via HACS add the repository URL `https://github.com/fourtrax01/hass-w
 
 This is a fork of [dlashua/hass-wasp_sensor](https://github.com/dlashua/hass-wasp_sensor) with fixes for current Home Assistant (2024.11 and later): the new `core_config` import, the reload service on HA 2025.x, and the box-closed timeout running as a cancellable background task instead of pausing the event handler. An experimental UI (config flow) version is on the [`config-flow-rewrite`](https://github.com/fourtrax01/hass-wasp_sensor/tree/config-flow-rewrite) branch.
 
-**Known issue:** Home Assistant logs a warning that this YAML-configured integration attaches a device to an entity without a config entry, which HA says will stop working in **2027.8**. The sensor works normally until then; the config-flow branch is the planned long-term fix.
+**HA 2027.8 compatibility (0.0.6):** earlier versions attached each sensor to a placeholder device, which HA no longer allows for YAML-configured integrations and logs as "will stop working in 2027.8". 0.0.6 no longer does that. Entity IDs, names, areas and history are unchanged.
 
 # Wasp Sensor
 

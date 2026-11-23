@@ -13,7 +13,6 @@ from homeassistant.const import (
 )
 
 from .const import (
-    BINARY_SENSOR,
     BINARY_SENSOR_DEVICE_CLASS,
     DOMAIN,
     SENSOR_CHANGE_DELAY,
@@ -232,15 +231,6 @@ class WaspBinarySensor(BinarySensorEntity, RestoreEntity):
     def unique_id(self):
         """Return a unique ID to use for this entity."""
         return f"{DOMAIN}_{self._config[CONF_NAME]}"
-
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self.unique_id)},
-            "name": self._config[CONF_NAME],
-            "model": BINARY_SENSOR,
-            "manufacturer": "Device Manu",
-        }
 
     @property
     def extra_state_attributes(self):
